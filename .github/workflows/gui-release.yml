@@ -1,0 +1,77 @@
+name: Build GUI Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "gui/**"
+      - "src/**"
+      - ".github/workflows/gui-release.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build C++ DLL
+        shell: pwsh
+        run: .\build.bat
+
+      - name: Stage DLL resources
+        shell: pwsh
+        run: |
+          $target = "gui/src/opensteamtool_gui/resources/dlls"
+          New-Item -ItemType Directory -Force $target | Out-Null
+          Copy-Item build/Release/OpenSteamTool.dll $target/
+          Copy-Item build/Release/dwmapi.dll $target/
+          Copy-Item build/Release/xinput1_4.dll $target/
+          $files = @{}
+          foreach ($name in @("OpenSteamTool.dll", "dwmapi.dll", "xinput1_4.dll")) {
+            $hash = (Get-FileHash "$target/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+            $files[$name] = $hash
+          }
+          @{ version = "${{ github.ref_name }}"; built_at = (Get-Date).ToUniversalTime().ToString("o"); files = $files } |
+            ConvertTo-Json -Depth 5 |
+            Set-Content "$target/manifest.json" -Encoding UTF8
+
+      - uses: astral-sh/setup-uv@v3
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps and test
+        working-directory: gui
+        run: |
+          uv sync --extra dev
+          uv run ruff check .
+          uv run pytest
+
+      - name: Compile i18n
+        working-directory: gui
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force src/opensteamtool_gui/resources/i18n | Out-Null
+          uv run pyside6-lrelease i18n/zh_CN.ts -qm src/opensteamtool_gui/resources/i18n/zh_CN.qm
+          uv run pyside6-lrelease i18n/en_US.ts -qm src/opensteamtool_gui/resources/i18n/en_US.qm
+
+      - name: Build GUI
+        working-directory: gui
+        run: uv run python build_exe.py
+
+      - name: Zip release
+        shell: pwsh
+        run: 7z a OpenSteamTool-GUI-${{ github.ref_name }}.zip .\gui\dist\OpenSteamTool-GUI\
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenSteamTool-GUI
+          path: OpenSteamTool-GUI-*.zip
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: OpenSteamTool-GUI-*.zip

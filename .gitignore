@@ -21,3 +21,17 @@ build/
 
 # DLLs (keep only source files)
 !.deps/**/*.dll
+
+# Python / GUI
+__pycache__/
+*.pyc
+*.pyo
+gui/.venv/
+gui/dist/
+gui/build/
+gui/.tmpappdata/
+gui/*.spec
+gui/i18n/*.qm
+*.egg-info/
+.pytest_cache/
+.ace-tool/
